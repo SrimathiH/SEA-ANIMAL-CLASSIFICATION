@@ -1,0 +1,341 @@
+#import libraries
+
+import pandas as pd
+import matplotlib.pyplot as plt
+import seaborn as sns
+import os
+import random
+import numpy as np
+import tensorflow as tf
+
+
+dir = "D:/GEO/4 classification/CLASSES"
+
+
+DF = pd.DataFrame(columns=['class', 'count'])
+DF['class'] = pd.Series([os.listdir(dir)[x] for x in range(0, 10)])
+DF['count'] = pd.Series([len(os.listdir(os.path.join(dir, os.listdir(dir)[x]))) for x in range(0, 10)])
+
+plt.figure(figsize=(15, 10))  # Adjust the figure size as per your preference
+
+g = sns.barplot(x='class', y='count', data=DF)
+g.set_xticklabels(g.get_xticklabels(), rotation=90)
+plt.tight_layout()
+
+plt.show()
+
+DF['class']=pd.Series([os.listdir(dir)[x] for x in range(0,10)])
+plt.figure(figsize=(25,10))
+g=sns.barplot(x='class', y='count',data=DF)
+g.set_xticklabels(g.get_xticklabels(), rotation=90)
+plt.tight_layout()
+
+plt.figure(figsize=(8,6))
+plt.tight_layout()
+plt.pie(DF['count'],
+        labels=DF['class'],
+        autopct='%1.1f%%')
+plt.axis('equal')
+plt.title('Proportion of each observed category')
+
+#########################################
+# visualize the training data
+
+W = 10
+H = 10
+fig, axes = plt.subplots(W, H, figsize = (17,17))
+
+axes = axes.ravel() # flaten the matrix into array
+# Select a random number from 0 to n_training/ images will be selected randomly
+for i in np.arange(0, W * H): 
+    # Select a class randomly
+    label = random.choice(os.listdir(dir))
+    class_dir = os.path.join(dir,label)
+    # Select a random image
+    image = random.choice(os.listdir(class_dir))
+    # read and display an image with the selected index    
+    img = plt.imread(os.path.join(class_dir,image))
+    axes[i].imshow( img )
+    #print(np.array(img).shape)
+    axes[i].set_title(label, fontsize = 8) # the label
+    axes[i].axis('off')
+    
+    # explore the image sizes
+np.array(img).shape
+##############################################################
+
+from tensorflow.keras.preprocessing.image import ImageDataGenerator
+import matplotlib.pyplot as plt
+import numpy as np
+from tensorflow.keras.preprocessing.image import ImageDataGenerator
+# All images will be rescaled by 1./255.
+datagen = ImageDataGenerator(rescale=1.0/255.,
+                             rotation_range=30,
+                             zoom_range=0.2,
+                             horizontal_flip=True,
+                             brightness_range=[0.6, 1],
+                             fill_mode='nearest',
+                             validation_split=0.2)
+
+train_generator = datagen.flow_from_directory(dir,
+                                              batch_size=8,
+                                              class_mode='categorical',
+                                              target_size=(150, 150),
+                                              subset='training')
+
+# Generate a batch of augmented images and labels
+augmented_images, augmented_labels = next(train_generator)
+
+# Convert the augmented images and labels to arrays
+augmented_images = np.array(augmented_images)
+augmented_labels = np.array(augmented_labels)
+
+# Print the shape of augmented images and labels
+print("Augmented Images shape:", augmented_images.shape)
+print("Augmented Labels shape:", augmented_labels.shape)
+
+# Plot the augmented images and labels
+class_labels = list(train_generator.class_indices.keys())
+
+fig, axes = plt.subplots(nrows=2, ncols=4, figsize=(12, 6))
+for i, ax in enumerate(axes.flat):
+    ax.imshow(augmented_images[i])
+    ax.set_title(class_labels[np.argmax(augmented_labels[i])])
+    ax.axis('off')
+
+plt.tight_layout()
+plt.show()
+
+
+val_generator = datagen.flow_from_directory(dir,
+                                                    batch_size=8,
+                                                    class_mode='categorical',
+                                                    target_size=(150, 150),
+                                                    shuffle=False,
+                                                    subset='validation' ) 
+
+
+
+
+#MODEL ARCHITECTURE
+
+import tensorflow as tf
+
+# Feature extractor
+denseNet = tf.keras.applications.DenseNet121(include_top=False,
+                                             weights="imagenet",
+                                             input_shape=(150, 150, 3))
+
+# Freeze the base model [denseNet]
+denseNet.trainable = False
+
+# Add the classifier
+model = tf.keras.models.Sequential()
+model.add(denseNet)
+model.add(tf.keras.layers.Flatten())
+model.add(tf.keras.layers.Dense(512, activation='relu'))
+model.add(tf.keras.layers.Dense(128, activation='relu'))
+model.add(tf.keras.layers.Dropout(0.2))
+model.add(tf.keras.layers.Dense(10, activation='softmax'))
+
+model.summary()
+
+# Compile the model with optimizer 'Adamax' and loss function 'categorical_crossentropy'
+model.compile(loss='categorical_crossentropy', optimizer='Adamax', metrics=['accuracy'])
+
+####################TRAINING################################
+
+from tensorflow.keras.callbacks import EarlyStopping, ModelCheckpoint
+
+# Define callbacks
+checkpoint = ModelCheckpoint("model_densenetnew_ADAMAX.h5", save_best_only=True, verbose=1)
+early_stopping = EarlyStopping(patience=5, restore_best_weights=True)
+
+epoch = 50
+
+history = model.fit(train_generator, epochs=epoch, validation_data=val_generator, verbose=1, callbacks=[checkpoint, early_stopping])
+model.save("model_densenetnew_ADAMAX.h5")
+
+#############################################################
+
+
+#model.load_weights("D:\GEO\4 classification\model_densenet2_GEO.h5")
+print("Loaded model from disk")
+
+label = ["Clams", "Coral reef", "DIVERS","Fish","Nudibranchs","Sea Rays","Sea Urchins","SUBMARINE","TORPIDO","WRECKS"]
+testDataset=val_generator
+batch_size=8
+validationStepsPerEpoch = np.ceil(testDataset.samples / batch_size)
+evaluation = model.evaluate(testDataset)
+print("Val loss:", evaluation[0])
+print("Val Accuracy:", evaluation[1]*100)
+
+acc = history.history['accuracy']
+val_acc = history.history['val_accuracy']
+loss = history.history['loss']
+val_loss = history.history['val_loss']
+plt.plot(history.history['accuracy'])
+plt.plot(history.history['val_accuracy'])
+plt.title('Model accuracy')
+plt.ylabel('Accuracy')
+plt.xlabel('Epoch')
+plt.legend(['Train', 'Test'], loc='upper left')
+plt.show()
+
+plt.plot(history.history['loss'])
+plt.plot(history.history['val_loss'])
+plt.title('Model loss')
+plt.ylabel('Loss')
+plt.xlabel('Epoch')
+plt.legend(['Train', 'Test'], loc='upper left')
+plt.show()
+
+
+#################
+from sklearn.metrics import confusion_matrix, classification_report
+Y_pred = model.predict(val_generator)
+model.evaluate(val_generator)
+y_pred = np.argmax(Y_pred, axis=1)
+print('Confusion Matrix')
+print(confusion_matrix(val_generator.classes, y_pred))
+print('Classification Report')
+#target_names = ['clams','Corals','Eel','fish','Lobster','Nudibranchs','Octopus',
+#                'Puffers','Sea Rays','Sea Urchins','Seahorse','Seal','Shrimp','Squid','Starfish']
+label = ["Clams", "Coral reef", "DIVERS","Fish","Nudibranchs","Sea Rays","Sea Urchins","SUBMARINE","TORPIDO","WRECKS"]
+target_names =label
+print(classification_report(val_generator.classes, y_pred, target_names=target_names))
+plt.figure(figsize=(10,8))
+plt.title('Predicted classes', size=14)
+sns.heatmap(confusion_matrix(val_generator.classes, y_pred), annot=True, fmt = '.0f',linewidths=.5)
+plt.show()
+
+
+
+
+
+import numpy as np
+import seaborn as sns
+import matplotlib.pyplot as plt
+from sklearn.metrics import confusion_matrix, classification_report
+
+# Assuming you have the predicted and true labels in y_pred and y_true variables, respectively
+
+# Create confusion matrix
+cm = confusion_matrix(y_true, y_pred)
+
+# Define class labels
+label = ["Clams", "Coral reef", "DIVERS", "Fish", "Nudibranchs", "Sea Rays", "Sea Urchins", "SUBMARINE", "TORPIDO", "WRECKS"]
+
+# Print confusion matrix
+print("Confusion Matrix:")
+print(cm)
+
+# Plot confusion matrix as a heatmap
+plt.figure(figsize=(10, 8))
+plt.title('Confusion Matrix', size=14)
+sns.heatmap(cm, annot=True, fmt='.0f', linewidths=.5, xticklabels=label, yticklabels=label)
+plt.xlabel('Predicted Label')
+plt.ylabel('True Label')
+plt.show()
+
+# Compute and print classification report
+report = classification_report(y_true, y_pred, target_names=label)
+print("Classification Report:")
+print(report)
+
+
+
+
+import numpy as np
+import seaborn as sns
+import matplotlib.pyplot as plt
+from sklearn.metrics import confusion_matrix, classification_report
+
+# Assuming you have the predicted and true labels in y_pred and y_true variables, respectively
+
+# Create confusion matrix
+cm = confusion_matrix(val_generator.classes, y_pred)
+
+# Define class labels
+label = ["Clams", "Coral reef", "DIVERS", "Fish", "Nudibranchs", "Sea Rays", "Sea Urchins", "SUBMARINE", "TORPIDO", "WRECKS"]
+
+# Print confusion matrix
+print("Confusion Matrix:")
+print(cm)
+
+# Print classification report
+print("Classification Report:")
+print(classification_report(val_generator.classes, y_pred, target_names=label))
+
+# Plot confusion matrix
+plt.figure(figsize=(10, 8))
+plt.title('Confusion Matrix', size=14)
+sns.heatmap(cm, annot=True, fmt='.0f', linewidths=.5, cmap="Blues", xticklabels=label, yticklabels=label)
+plt.xlabel('Predicted Label')
+plt.ylabel('True Label')
+plt.show()
+
+
+
+# Visualize a few test samples with their predicted and true labels
+num_samples = 5
+sample_indexes = np.random.choice(len(val_generator.filepaths), num_samples, replace=False)
+samples = [val_generator.filepaths[i] for i in sample_indexes]
+predicted_labels = [target_names[pred] for pred in y_pred[sample_indexes]]
+true_labels = [target_names[true] for true in y_true[sample_indexes]]
+
+plt.figure(figsize=(15, 10))
+for i, (sample, predicted_label, true_label) in enumerate(zip(samples, predicted_labels, true_labels)):
+    plt.subplot(1, num_samples, i + 1)
+    image = plt.imread(sample)
+    plt.imshow(image)
+    plt.axis('off')
+    plt.title(f'Predicted: {predicted_label}\nTrue: {true_label}')
+plt.show()
+
+
+from sklearn.metrics import classification_report
+
+# Confusion matrix
+cm = confusion_matrix(val_generator.classes, y_pred)
+
+# Calculate precision, recall, and F1-score
+report = classification_report(val_generator.classes, y_pred)
+print(report)
+
+import pickle
+with open('model_densenet_GEO.h5', 'wb') as file_pi:
+        pickle.dump(history.history, file_pi)
+        
+model.load_weights("model_densenet_GEO.h5")
+        
+        
+def evaluation(history):
+    # evaluation
+    #-----------------------------------------------------------
+    # Retrieve a list of list results on training and test data
+    # sets for each training epoch
+    #-----------------------------------------------------------
+    acc      = history.history['accuracy']
+    val_acc  = history.history['val_accuracy']
+    loss     = history.history['loss']
+    val_loss = history.history['val_loss']
+
+    epochs   = range(len(acc)) # Get number of epochs
+    
+    #------------------------------------------------
+    # Plot training and validation accuracy per epoch
+    #------------------------------------------------
+    plt.figure(figsize=(10,6))
+    plt.plot  ( epochs,     acc )
+    plt.plot  ( epochs, val_acc )
+    plt.title ('Training and validation accuracy')
+    plt.legend()
+ #------------------------------------------------
+ # Plot training and validation loss per epoch
+ #------------------------------------------------
+    plt.figure(figsize=(10,6))
+    plt.plot  ( epochs,     loss )
+    plt.plot  ( epochs, val_loss )
+    plt.title ('Training and validation loss'   )
+evaluation(history)
